@@ -1,5 +1,7 @@
 #include "RetroEngine.hpp"
 
+#if RETRO_HARDWARE_RENDER
+
 int pauseMenuButtonCount;
 
 void PauseMenu_Create(void *objPtr)
@@ -513,3 +515,157 @@ void PauseMenu_Main(void *objPtr)
     SetRenderBlendMode(RENDER_BLEND_ALPHA);
     NewRenderState();
 }
+
+#else // !RETRO_HARDWARE_RENDER
+
+// 2D pause menu restored from pre-REV03 decomp (Sonic12Decomp/PauseMenu.cpp@d6f0d5a).
+// The mobile mesh-based PauseMenu requires the GL render path; when SW
+// rendering is used the menu is invisible-but-responsive, or crashes 
+// outright if not present. This restores a lightweight text-based menu 
+// so pause works in SW builds.
+
+static TextMenu pauseTextMenu;
+
+void PauseMenu_Create(void *objPtr)
+{
+    NativeEntity_PauseMenu *pauseMenu = (NativeEntity_PauseMenu *)objPtr;
+    pauseMenu->state                  = 0;
+    pauseMenu->timer                  = 0;
+    pauseMenu->selectedOption         = 0;
+    pauseMenu->barPos                 = SCREEN_XSIZE + 64;
+    pauseMenu->menu                   = &pauseTextMenu;
+    MEM_ZEROP(pauseMenu->menu);
+
+    AddTextMenuEntry(pauseMenu->menu, "RESUME");
+    AddTextMenuEntry(pauseMenu->menu, "");
+    AddTextMenuEntry(pauseMenu->menu, "");
+    AddTextMenuEntry(pauseMenu->menu, "");
+    AddTextMenuEntry(pauseMenu->menu, "RESTART");
+    AddTextMenuEntry(pauseMenu->menu, "");
+    AddTextMenuEntry(pauseMenu->menu, "");
+    AddTextMenuEntry(pauseMenu->menu, "");
+    AddTextMenuEntry(pauseMenu->menu, "EXIT");
+    if (Engine.devMenu) {
+        AddTextMenuEntry(pauseMenu->menu, "");
+        AddTextMenuEntry(pauseMenu->menu, "");
+        AddTextMenuEntry(pauseMenu->menu, "");
+        AddTextMenuEntry(pauseMenu->menu, "DEV MENU");
+    }
+    pauseMenu->menu->alignment      = MENU_ALIGN_CENTER;
+    pauseMenu->menu->selectionCount = Engine.devMenu ? 3 : 2;
+    pauseMenu->menu->selection1     = 0;
+    pauseMenu->menu->selection2     = 0;
+    pauseMenu->lastSurfaceNo        = textMenuSurfaceNo;
+    textMenuSurfaceNo               = SURFACE_COUNT - 1;
+
+    LoadGIFFile("Data/Game/SystemText.gif", SURFACE_COUNT - 1);
+    SetPaletteEntryPacked(7, 0x08, GetPaletteEntryPacked(0, 8));
+    SetPaletteEntryPacked(7, 0xFF, 0xFFFFFF);
+}
+
+void PauseMenu_Main(void *objPtr)
+{
+    CheckKeyDown(&keyDown);
+    CheckKeyPress(&keyPress);
+
+    NativeEntity_PauseMenu *pauseMenu = (NativeEntity_PauseMenu *)objPtr;
+
+    switch (pauseMenu->state) {
+        case 0:
+            pauseMenu->barPos -= 16;
+            if (pauseMenu->barPos + 64 < SCREEN_XSIZE)
+                pauseMenu->state++;
+            break;
+
+        case 1: {
+            int optionCount = Engine.devMenu ? 4 : 3;
+            if (keyPress.up) {
+                if (pauseMenu->selectedOption == 0)
+                    pauseMenu->selectedOption = optionCount;
+                --pauseMenu->selectedOption;
+                PlaySfxByName("Menu Move", false);
+            }
+            else if (keyPress.down) {
+                pauseMenu->selectedOption = (pauseMenu->selectedOption + 1) % optionCount;
+                PlaySfxByName("Menu Move", false);
+            }
+
+            pauseMenu->menu->selection1 = pauseMenu->selectedOption * 4;
+
+            if (keyPress.A || keyPress.start) {
+                switch (pauseMenu->selectedOption) {
+                    case 0:
+                        Engine.gameMode  = ENGINE_EXITPAUSE;
+                        pauseMenu->state = 2;
+                        break;
+                    case 1:
+                        pauseMenu->state = 3;
+                        break;
+                    case 2:
+                        pauseMenu->state = 4;
+                        break;
+                    case 3:
+                        pauseMenu->state = 5;
+                        break;
+                }
+                PlaySfxByName("Menu Select", false);
+            }
+            else if (keyPress.B) {
+                Engine.gameMode = ENGINE_EXITPAUSE;
+                PlaySfxByName("Menu Back", false);
+                pauseMenu->state = 6;
+            }
+            break;
+        }
+
+        case 2:
+        case 6:
+            pauseMenu->barPos += 16;
+            if (pauseMenu->barPos > SCREEN_XSIZE + 64) {
+                textMenuSurfaceNo = pauseMenu->lastSurfaceNo;
+                RemoveNativeObject(pauseMenu);
+                return;
+            }
+            break;
+
+        case 3:
+        case 4:
+        case 5:
+            pauseMenu->barPos -= 16;
+            if (pauseMenu->barPos + 64 < 0) {
+                textMenuSurfaceNo = pauseMenu->lastSurfaceNo;
+                switch (pauseMenu->state) {
+                    default: break;
+                    case 3:
+                        stageMode       = STAGEMODE_LOAD;
+                        Engine.gameMode = ENGINE_MAINGAME;
+                        if (GetGlobalVariableByName("options.gameMode") <= 1)
+                            SetGlobalVariableByName("options.lives", GetGlobalVariableByName("options.lives") - 1);
+                        SetGlobalVariableByName("lampPostID", 0);
+                        SetGlobalVariableByName("starPostID", 0);
+                        break;
+                    case 4:
+                        // No standalone start menu in REV03 — exit to dev menu instead.
+                        Engine.gameMode = ENGINE_DEVMENU;
+                        InitDevMenu();
+                        break;
+                    case 5:
+                        Engine.gameMode = ENGINE_DEVMENU;
+                        InitDevMenu();
+                        break;
+                }
+                RemoveNativeObject(pauseMenu);
+                return;
+            }
+            break;
+    }
+
+    if (pauseMenu->menu) {
+        SetActivePalette(7, 0, SCREEN_YSIZE);
+        DrawRectangle(pauseMenu->barPos, 0, SCREEN_XSIZE - pauseMenu->barPos, SCREEN_YSIZE, 0, 0, 0, 0xFF);
+        DrawTextMenu(pauseMenu->menu, pauseMenu->barPos + 0x28, SCREEN_CENTERY - 0x30);
+        SetActivePalette(0, 0, SCREEN_YSIZE);
+    }
+}
+
+#endif // RETRO_HARDWARE_RENDER

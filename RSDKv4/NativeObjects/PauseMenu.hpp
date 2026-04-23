@@ -1,6 +1,23 @@
 #ifndef NATIVE_PAUSEMENU_H
 #define NATIVE_PAUSEMENU_H
 
+#if !RETRO_HARDWARE_RENDER
+
+// Simple 2D pause menu used when the GL mesh renderer is unavailable
+struct NativeEntity_PauseMenu : NativeEntityBase {
+    byte state;
+    int timer;
+    int barPos;
+    byte selectedOption;
+    TextMenu *menu;
+    int lastSurfaceNo;
+};
+
+void PauseMenu_Create(void *objPtr);
+void PauseMenu_Main(void *objPtr);
+
+#else  // RETRO_HARDWARE_RENDER
+
 enum PauseMenuButtons {
     PMB_CONTINUE,
     PMB_RESTART,
@@ -73,5 +90,7 @@ void PauseMenu_Main(void *objPtr);
 // added by me rmg
 void PauseMenu_Render(void *objPtr);
 void PauseMenu_CheckTouch(void *objPtr);
+
+#endif // RETRO_HARDWARE_RENDER
 
 #endif // NATIVE_PAUSEMENU_H

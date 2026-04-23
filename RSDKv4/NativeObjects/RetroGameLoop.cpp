@@ -3,9 +3,18 @@
 void InitPauseMenu()
 {
     PauseSound();
+#if RETRO_HARDWARE_RENDER
     ClearNativeObjects();
     CREATE_ENTITY(MenuBG);
     CREATE_ENTITY(PauseMenu);
+#else
+    // 2D pause menu preserves the running stage beneath it. Keep scripted
+    // entities intact and park the game loop in ENGINE_WAIT so ProcessStage
+    // halts without destroying state; PauseMenu_Main flips to ENGINE_EXITPAUSE
+    // on resume, restoring ENGINE_MAINGAME.
+    CREATE_ENTITY(PauseMenu);
+    Engine.gameMode = ENGINE_WAIT;
+#endif
 }
 
 void RetroGameLoop_Create(void *objPtr) { mixFiltersOnJekyll = Engine.useHighResAssets; }
